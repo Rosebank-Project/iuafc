@@ -205,3 +205,21 @@ The system design includes:
 The sitemap shows how the different pages and functions are connected.
 
 The wireframes were used to plan the layout, navigation, forms, buttons and placement of information before development.
+
+## Team
+
+### Alexandra: Project Manager / Team Leader
+
+Responsible for coordinating the project, allocating tasks, managing deadlines, communication, decision-making and risk management.
+
+### Rolph: Business Analyst
+
+Responsible for gathering and analysing requirements, understanding client needs and making sure the system addresses the church's requirements.
+
+### Miguel: System Designer / Technical Lead
+
+Responsible for the system architecture, technical decisions and overall system design.
+
+### Avuzwa: Documentation Lead / Planner
+
+Responsible for project documentation, planning, reports and supporting documentation.
