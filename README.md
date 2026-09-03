@@ -29,3 +29,128 @@ The main goals of the system are to:
 - Provide a simple and easy-to-use interface
 - Protect important church and financial information
 
+## Main Features
+
+### User Authentication
+
+- User registration
+- Login and logout
+- Forgot password
+- Role-based access
+- User profile management
+
+### Member Management
+
+- View members
+- Add members
+- Update member information
+- Search for members
+- Deactivate members
+
+### Attendance Management
+
+- Capture attendance
+- View attendance records
+- Track member attendance
+- Generate attendance reports
+
+### Ministry Management
+
+- View ministries
+- Create ministries
+- Manage ministry activities
+- Manage ministry participation
+- Approve ministry activities
+
+### Event Management
+
+- View upcoming events
+- Create events
+- Update events
+- Manage event information
+- Register for events
+
+### Donation Management
+
+- Submit donations
+- Record donations
+- View donation history
+- Manage donation information
+- Generate donation reports
+
+### Announcements
+
+- View church announcements
+- Create announcements
+- Update announcements
+- Archive announcements
+- Share important information with members
+
+### Reports
+
+The system provides reports for areas such as:
+
+- Members
+- Attendance
+- Donations
+- Events
+- Ministries
+
+## User Roles
+
+The system supports different users based on their responsibilities within the church.
+
+| Role | Main Responsibilities |
+|---|---|
+| **Administrator** | Manage members, events, ministries, announcements and system information |
+| **Pastor** | Monitor church information and activities |
+| **Ministry Leader** | Manage ministry activities and attendance |
+| **Finance Officer** | Manage donations and financial information |
+| **Church Member** | View church information, events, announcements, attendance and donations |
+
+## Web Application
+
+The web application provides the main management and administration functions.
+
+### Website Sections
+
+- Home
+- About Church
+- Contact
+- Announcements
+- Login
+- Forgot Password
+- Dashboard
+- Member Management
+- Attendance
+- Ministries
+- Events
+- Donations
+- Reports
+- Profile
+
+The website is designed to provide more detailed functionality for users who manage church information.
+
+## Mobile Application
+
+The mobile application provides church members with quick and convenient access to important church services.
+
+### Mobile Sections
+
+- Splash Screen
+- Login
+- Forgot Password
+- Home / Dashboard
+- Announcements
+- Upcoming Events
+- Events
+- Event Details
+- Event Registration
+- Donations
+- Donation History
+- Attendance
+- Ministries
+- Profile
+- Settings
+
+The mobile application focuses on frequently used member functions rather than duplicating every administrative feature available on the website.
