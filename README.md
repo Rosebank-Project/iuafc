@@ -223,3 +223,31 @@ Responsible for the system architecture, technical decisions and overall system 
 ### Avuzwa: Documentation Lead / Planner
 
 Responsible for project documentation, planning, reports and supporting documentation.
+
+## Benefits
+
+The Church Management System is expected to provide the following benefits:
+
+- Reduced administrative workload
+- Better communication with church members
+- Improved attendance tracking
+- Better donation management
+- Centralised church information
+- Easier event coordination
+- Improved reporting
+- Faster access to information
+- More organised record keeping
+- Better decision-making
+
+## Project Links
+
+- **GitHub Repository:** https://github.com/Rosebank-Project/iuafc
+- **Prototype Web Application:** https://iuafc.vercel.app/
+
+## License
+
+This project was developed for **The International United Apostolic Faith Church** as a Church Management System.
+
+## Acknowledgements
+
+The project was developed using information gathered from church leadership and the identified administrative and communication needs of the church.
