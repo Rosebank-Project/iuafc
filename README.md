@@ -154,3 +154,21 @@ The mobile application provides church members with quick and convenient access 
 - Settings
 
 The mobile application focuses on frequently used member functions rather than duplicating every administrative feature available on the website.
+
+## Website and Mobile Application
+
+The website and mobile application are designed to work together while serving different user needs.
+
+The website is focused more on administration and managing larger amounts of information.
+
+The mobile application provides members with quick access to information such as:
+
+- Announcements
+- Upcoming events
+- Event registration
+- Donations
+- Attendance
+- Ministry information
+- Profile information
+
+This approach keeps the mobile application simple while still providing the functionality members need.
