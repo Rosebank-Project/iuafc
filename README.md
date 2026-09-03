@@ -172,3 +172,36 @@ The mobile application provides members with quick access to information such as
 - Profile information
 
 This approach keeps the mobile application simple while still providing the functionality members need.
+
+## Information Gathering
+
+The system requirements were identified by examining the church's current processes and communicating with church leadership.
+
+An interview with the pastor helped the team understand the problems experienced by the church and identify the main areas that could be improved through a digital system.
+
+The information gathered helped define the system requirements for:
+
+- Member management
+- Attendance
+- Events
+- Ministries
+- Donations
+- Communication
+- Reports
+- User access
+
+## System Design
+
+The system design includes:
+
+- Website sitemap
+- Mobile application sitemap
+- Website wireframes
+- Mobile application wireframes
+- System architecture
+- Database design
+- User interaction design
+
+The sitemap shows how the different pages and functions are connected.
+
+The wireframes were used to plan the layout, navigation, forms, buttons and placement of information before development.
