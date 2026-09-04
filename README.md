@@ -1,6 +1,6 @@
 # Church Management System
 
-<img src="https://github.com/Rosebank-Project/iuafc/public/logo.png" width="300" height="200">
+![Logo](/public/logo.png)
 
 A web and mobile Church Management System developed for **The International United Apostolic Faith Church**.
 
