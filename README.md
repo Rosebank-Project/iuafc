@@ -4,6 +4,8 @@ A web and mobile Church Management System developed for **The International Unit
 
 The system is designed to make church administration easier by bringing important church information, activities and communication into one organised platform.
 
+**Installation Guide:** See [INSTALL.md](./INSTALL.md) for the complete installation and setup instructions.
+
 ## About the Project
 
 The church currently manages information using different methods such as paper records, spreadsheets, WhatsApp groups, telephone calls and verbal communication.
@@ -100,13 +102,13 @@ The system provides reports for areas such as:
 
 The system supports different users based on their responsibilities within the church.
 
-| Role | Main Responsibilities |
-|---|---|
-| **Administrator** | Manage members, events, ministries, announcements and system information |
-| **Pastor** | Monitor church information and activities |
-| **Ministry Leader** | Manage ministry activities and attendance |
-| **Finance Officer** | Manage donations and financial information |
-| **Church Member** | View church information, events, announcements, attendance and donations |
+| Role                | Main Responsibilities                                                    |
+| ------------------- | ------------------------------------------------------------------------ |
+| **Administrator**   | Manage members, events, ministries, announcements and system information |
+| **Pastor**          | Monitor church information and activities                                |
+| **Ministry Leader** | Manage ministry activities and attendance                                |
+| **Finance Officer** | Manage donations and financial information                               |
+| **Church Member**   | View church information, events, announcements, attendance and donations |
 
 ## Web Application
 
