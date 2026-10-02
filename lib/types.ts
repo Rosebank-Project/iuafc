@@ -2,12 +2,22 @@ export type Role = "Administrator" | "Pastor" | "Finance Officer" | "Ministry Le
 
 export interface User {
   id: string
-  username: string
-  password: string // base64 encoded for demo
+  username: string // email for Supabase accounts
+  password?: string // only used by the sample data; real passwords are kept by Supabase Auth
   role: Role
   fullName: string
   memberId?: string // links to Member if Member role
   ministryId?: string // links to Ministry if Ministry Leader
+}
+
+/** Row of the Supabase `profiles` table (database/profiles.sql in the mobile repo). */
+export interface Profile {
+  id: string
+  full_name: string
+  email: string
+  role: Role
+  member_id: string | null
+  ministry_id: string | null
 }
 
 export interface Member {
