@@ -1,15 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  ShieldAlert,
-  Search,
-  KeyRound,
-  UserCog,
-} from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Info, Loader2, Pencil, RefreshCw, Search, UserCog } from "lucide-react"
 import { useChurch } from "@/lib/church-context"
 import type { Role, User } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -25,23 +17,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -50,7 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Spinner } from "@/components/ui/spinner"
 import { toast } from "sonner"
 
 const ROLES: Role[] = [
@@ -69,143 +52,80 @@ const ROLE_BADGE: Record<Role, string> = {
   "Church Member": "bg-secondary text-secondary-foreground",
 }
 
-interface UserForm {
-  fullName: string
-  username: string
-  password: string
-  role: Role
-  memberId: string
-  ministryId: string
-}
-
-const emptyForm: UserForm = {
-  fullName: "",
-  username: "",
-  password: "",
-  role: "Church Member",
-  memberId: "",
-  ministryId: "",
-}
-
+/**
+ * User accounts and roles (Administrator only). Accounts are created by Supabase Auth
+ * when people register or sign in with Google; roles change through the
+ * `set_user_role` database function, which keeps at least one Administrator.
+ */
 export default function UsersPage() {
-  const { data, currentUser, addUser, updateUser, deleteUser } = useChurch()
+  const { currentUser, profiles, loadProfiles, setUserRole } = useChurch()
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
-  const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<User | null>(null)
-  const [form, setForm] = useState<UserForm>(emptyForm)
-  const [confirmDelete, setConfirmDelete] = useState<User | null>(null)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [newRole, setNewRole] = useState<Role>("Church Member")
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  if (!currentUser) return null
-
-  if (currentUser.role !== "Administrator") {
-    return (
-      <Alert variant="destructive">
-        <ShieldAlert className="size-4" />
-        <AlertDescription>
-          Only Administrators can manage user accounts.
-        </AlertDescription>
-      </Alert>
-    )
+  const refresh = async () => {
+    setLoading(true)
+    const result = await loadProfiles()
+    setLoadError(result.success ? null : result.error ?? "Could not load users.")
+    setLoading(false)
   }
 
+  useEffect(() => {
+    if (currentUser?.role === "Administrator") refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.role])
+
   const filtered = useMemo(() => {
-    let list = data.users
-    if (roleFilter !== "all") list = list.filter((u) => u.role === roleFilter)
     const q = query.trim().toLowerCase()
-    if (q)
-      list = list.filter(
+    return profiles
+      .filter((u) => roleFilter === "all" || u.role === roleFilter)
+      .filter(
         (u) =>
+          !q ||
           u.fullName.toLowerCase().includes(q) ||
           u.username.toLowerCase().includes(q) ||
           u.role.toLowerCase().includes(q),
       )
-    return [...list].sort((a, b) => a.fullName.localeCompare(b.fullName))
-  }, [data.users, query, roleFilter])
+  }, [profiles, query, roleFilter])
 
-  const openNew = () => {
-    setEditing(null)
-    setForm(emptyForm)
-    setFormError(null)
-    setOpen(true)
+  const roleCounts = useMemo(() => {
+    const c = Object.fromEntries(ROLES.map((r) => [r, 0])) as Record<Role, number>
+    for (const u of profiles) c[u.role]++
+    return c
+  }, [profiles])
+
+  if (!currentUser) return null
+  if (currentUser.role !== "Administrator") {
+    return (
+      <Alert>
+        <AlertDescription>Only Administrators can manage user accounts.</AlertDescription>
+      </Alert>
+    )
   }
 
   const openEdit = (u: User) => {
     setEditing(u)
-    setForm({
-      fullName: u.fullName,
-      username: u.username,
-      password: "",
-      role: u.role,
-      memberId: u.memberId ?? "",
-      ministryId: u.ministryId ?? "",
-    })
-    setFormError(null)
-    setOpen(true)
+    setNewRole(u.role)
+    setSaveError(null)
   }
 
-  const save = (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormError(null)
-    if (!form.fullName.trim()) return setFormError("Full name is required.")
-    if (!form.username.trim()) return setFormError("Username is required.")
-
-    const payload = {
-      fullName: form.fullName,
-      username: form.username,
-      role: form.role,
-      memberId: form.role === "Church Member" ? form.memberId || undefined : undefined,
-      ministryId:
-        form.role === "Ministry Leader" ? form.ministryId || undefined : undefined,
-    }
-
-    if (editing) {
-      const res = updateUser(editing.id, {
-        ...payload,
-        password: form.password ? form.password : undefined,
-      })
-      if (!res.success) return setFormError(res.error ?? "Failed to update account.")
-      toast.success("Account updated")
+  const handleSave = async () => {
+    if (!editing || saving) return
+    setSaving(true)
+    const result = await setUserRole(editing.id, newRole)
+    setSaving(false)
+    if (result.success) {
+      toast.success(`${editing.fullName} is now ${newRole}`)
+      setEditing(null)
     } else {
-      if (!form.password.trim())
-        return setFormError("Password is required for new accounts.")
-      const res = addUser({ ...payload, password: form.password })
-      if (!res.success) return setFormError(res.error ?? "Failed to create account.")
-      toast.success("Account created")
+      setSaveError(result.error ?? "Could not change the role.")
     }
-    setOpen(false)
   }
-
-  const handleDelete = () => {
-    if (!confirmDelete) return
-    const res = deleteUser(confirmDelete.id)
-    if (!res.success) {
-      toast.error(res.error ?? "Failed to delete account")
-    } else {
-      toast.success("Account deleted")
-    }
-    setConfirmDelete(null)
-  }
-
-  const generatePassword = () => {
-    const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-    let p = ""
-    for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)]
-    setForm((f) => ({ ...f, password: p }))
-  }
-
-  const roleCounts = useMemo(() => {
-    const c: Record<Role, number> = {
-      Administrator: 0,
-      Pastor: 0,
-      "Finance Officer": 0,
-      "Ministry Leader": 0,
-      "Church Member": 0,
-    }
-    for (const u of data.users) c[u.role]++
-    return c
-  }, [data.users])
 
   return (
     <div className="space-y-6">
@@ -213,21 +133,27 @@ export default function UsersPage() {
         <div>
           <h2 className="text-2xl font-semibold">User Accounts</h2>
           <p className="text-sm text-muted-foreground">
-            Create and manage login accounts for every role in the church.
+            Manage the role of every account in the church.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <Plus className="size-4" /> New Account
+        <Button variant="outline" onClick={refresh} disabled={loading}>
+          <RefreshCw className="size-4" /> Refresh
         </Button>
       </header>
+
+      <Alert>
+        <Info className="size-4" />
+        <AlertDescription>
+          Accounts are created when people register or sign in with Google (on the website or the
+          mobile app). New accounts start as Church Member.
+        </AlertDescription>
+      </Alert>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {ROLES.map((r) => (
           <Card key={r}>
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                {r}
-              </p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">{r}</p>
               <p className="text-xl font-semibold mt-1">{roleCounts[r]}</p>
             </CardContent>
           </Card>
@@ -243,7 +169,7 @@ export default function UsersPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-9"
-                placeholder="Search by name, username or role"
+                placeholder="Search by name, email or role"
               />
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
@@ -261,75 +187,58 @@ export default function UsersPage() {
             </Select>
           </div>
 
+          {loadError && (
+            <Alert variant="destructive">
+              <AlertDescription>{loadError}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="rounded-md border border-border overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Full Name</TableHead>
-                  <TableHead>Username</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Linked</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.length === 0 ? (
+                {loading ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="text-center py-10 text-muted-foreground"
-                    >
+                    <TableCell colSpan={4} className="py-10">
+                      <Spinner className="size-6 mx-auto text-primary" />
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
                       <UserCog className="size-8 mx-auto mb-2 opacity-50" />
                       No accounts match your search.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((u) => {
-                    const isSelf = u.id === currentUser.id
-                    const linkedMember = u.memberId
-                      ? data.members.find((m) => m.id === u.memberId)?.fullName
-                      : null
-                    const linkedMinistry = u.ministryId
-                      ? data.ministries.find((m) => m.id === u.ministryId)?.name
-                      : null
-                    return (
-                      <TableRow key={u.id}>
-                        <TableCell className="font-medium">
-                          {u.fullName}
-                          {isSelf && (
-                            <Badge variant="outline" className="ml-2 text-xs">
-                              you
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{u.username}</TableCell>
-                        <TableCell>
-                          <Badge className={ROLE_BADGE[u.role]}>{u.role}</Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {linkedMember && <span>Member: {linkedMember}</span>}
-                          {linkedMinistry && <span>Ministry: {linkedMinistry}</span>}
-                          {!linkedMember && !linkedMinistry && <span>—</span>}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="inline-flex gap-1">
-                            <Button size="icon" variant="ghost" onClick={() => openEdit(u)}>
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-destructive"
-                              disabled={isSelf}
-                              onClick={() => setConfirmDelete(u)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
+                  filtered.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">
+                        {u.fullName}
+                        {u.id === currentUser.id && (
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            you
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs">{u.username}</TableCell>
+                      <TableCell>
+                        <Badge className={ROLE_BADGE[u.role]}>{u.role}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="ghost" onClick={() => openEdit(u)}>
+                          <Pencil className="size-4" /> Change role
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>
@@ -337,168 +246,42 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={!!editing} onOpenChange={(open) => !open && !saving && setEditing(null)}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit Account" : "Create New Account"}</DialogTitle>
-            <DialogDescription>
-              {editing
-                ? "Update account information. Leave the password blank to keep it unchanged."
-                : "Choose a role and create a new login account."}
-            </DialogDescription>
+            <DialogTitle>Change role</DialogTitle>
+            <DialogDescription>{editing?.fullName}</DialogDescription>
           </DialogHeader>
-          <form onSubmit={save} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2 col-span-2">
-                <Label htmlFor="fullName">Full Name *</Label>
-                <Input
-                  id="fullName"
-                  value={form.fullName}
-                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="username">Username *</Label>
-                <Input
-                  id="username"
-                  value={form.username}
-                  onChange={(e) =>
-                    setForm({ ...form, username: e.target.value.replace(/\s+/g, "") })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Role *</Label>
-                <Select
-                  value={form.role}
-                  onValueChange={(v) => setForm({ ...form, role: v as Role })}
-                >
-                  <SelectTrigger id="role">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {form.role === "Church Member" && (
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="memberId">Link to Member Record</Label>
-                  <Select
-                    value={form.memberId || "none"}
-                    onValueChange={(v) =>
-                      setForm({ ...form, memberId: v === "none" ? "" : v })
-                    }
-                  >
-                    <SelectTrigger id="memberId">
-                      <SelectValue placeholder="Select a member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {data.members.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.fullName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Linking enables the member to view their own attendance and donations.
-                  </p>
-                </div>
-              )}
-
-              {form.role === "Ministry Leader" && (
-                <div className="space-y-2 col-span-2">
-                  <Label htmlFor="ministryId">Assigned Ministry</Label>
-                  <Select
-                    value={form.ministryId || "none"}
-                    onValueChange={(v) =>
-                      setForm({ ...form, ministryId: v === "none" ? "" : v })
-                    }
-                  >
-                    <SelectTrigger id="ministryId">
-                      <SelectValue placeholder="Select ministry" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {data.ministries.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="space-y-2 col-span-2">
-                <Label htmlFor="password">
-                  Password {editing ? "(leave blank to keep)" : "*"}
-                </Label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type="text"
-                      className="pl-9 font-mono"
-                      value={form.password}
-                      onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder={editing ? "Unchanged" : "At least 4 characters"}
-                    />
-                  </div>
-                  <Button type="button" variant="outline" onClick={generatePassword}>
-                    Generate
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {formError && (
-              <Alert variant="destructive">
-                <AlertDescription>{formError}</AlertDescription>
-              </Alert>
-            )}
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">{editing ? "Save" : "Create Account"}</Button>
-            </DialogFooter>
-          </form>
+          <div className="space-y-2">
+            <Label htmlFor="role">Role</Label>
+            <Select value={newRole} onValueChange={(v) => setNewRole(v as Role)}>
+              <SelectTrigger id="role" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {saveError && (
+            <Alert variant="destructive">
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving || newRole === editing?.role}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null} Save
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog
-        open={!!confirmDelete}
-        onOpenChange={(o) => !o && setConfirmDelete(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmDelete?.fullName} will no longer be able to sign in. This action cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

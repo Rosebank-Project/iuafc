@@ -11,24 +11,18 @@ import type {
   Member,
   Ministry,
   MinistryActivity,
+  Role,
   User,
 } from "./types"
+import { loadData, saveData, uid } from "./storage"
+import { supabase } from "./supabase"
 import {
-  clearSession,
-  hashPassword,
-  loadData,
-  loadLoginAttempts,
-  loadSession,
-  saveData,
-  saveLoginAttempts,
-  saveSession,
-  uid,
-  verifyPassword,
-  type LoginAttempt,
-} from "./storage"
-
-const MAX_LOGIN_ATTEMPTS = 5
-const LOGIN_LOCK_MS = 15 * 60 * 1000 // 15 minutes
+  friendlyAuthError,
+  loadCurrentUser,
+  loadProfiles as fetchProfiles,
+  setUserRole as updateUserRole,
+  type AuthResult,
+} from "./auth"
 
 interface ChurchContextValue {
   // state
@@ -36,14 +30,18 @@ interface ChurchContextValue {
   currentUser: User | null
   isLoading: boolean
 
-  // auth
-  login: (username: string, password: string, role: string) => { success: boolean; error?: string }
-  logout: () => void
+  // auth (Supabase Auth – passwords are hashed by Supabase)
+  signIn: (email: string, password: string) => Promise<AuthResult>
+  signUp: (fullName: string, email: string, password: string) => Promise<AuthResult & { needsConfirmation?: boolean }>
+  signInWithGoogle: () => Promise<AuthResult>
+  sendPasswordReset: (email: string) => Promise<AuthResult>
+  updatePassword: (password: string) => Promise<AuthResult>
+  logout: () => Promise<void>
 
-  // users (admin)
-  addUser: (u: Omit<User, "id" | "password"> & { password: string }) => { success: boolean; user?: User; error?: string }
-  updateUser: (id: string, u: Partial<Omit<User, "password">> & { password?: string }) => { success: boolean; error?: string }
-  deleteUser: (id: string) => { success: boolean; error?: string }
+  // users (admin) – the Supabase `profiles` table
+  profiles: User[]
+  loadProfiles: () => Promise<AuthResult>
+  setUserRole: (userId: string, role: Role) => Promise<AuthResult>
 
   // members
   addMember: (m: Omit<Member, "id">) => Member
@@ -101,172 +99,103 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
     announcements: [],
     activities: [],
   }))
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [profiles, setProfiles] = useState<User[]>([])
+  const [dataLoading, setDataLoading] = useState(true)
+  const [authLoading, setAuthLoading] = useState(true)
+  const isLoading = dataLoading || authLoading
 
-  // hydrate from localStorage on mount
+  // hydrate church data from localStorage on mount (until the Supabase tables exist, #1)
   useEffect(() => {
     const loaded = loadData()
     // backwards compat: ensure activities array exists for older saved state
     if (!loaded.activities) loaded.activities = []
     setData(loaded)
-    const session = loadSession()
-    if (session) setCurrentUserId(session)
-    setIsLoading(false)
+    setDataLoading(false)
   }, [])
 
   // persist to localStorage whenever data changes
   useEffect(() => {
-    if (!isLoading) saveData(data)
-  }, [data, isLoading])
+    if (!dataLoading) saveData(data)
+  }, [data, dataLoading])
 
-  const currentUser = useMemo(
-    () => data.users.find((u) => u.id === currentUserId) ?? null,
-    [data.users, currentUserId],
-  )
+  // follow the Supabase session (sign in, sign out, Google redirect, token refresh)
+  useEffect(() => {
+    let active = true
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Supabase recommends not awaiting other Supabase calls inside this callback.
+      setTimeout(async () => {
+        const user = session?.user ? await loadCurrentUser(session.user) : null
+        if (!active) return
+        setCurrentUser(user)
+        setAuthLoading(false)
+      }, 0)
+    })
+    return () => {
+      active = false
+      listener.subscription.unsubscribe()
+    }
+  }, [])
 
-  const login = useCallback(
-    (username: string, password: string, role: string) => {
-      const uname = username.trim().toLowerCase()
-      const attempts = loadLoginAttempts()
-      const record = attempts[uname]
+  // ---------- auth ----------
+  const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+    return error ? { success: false, error: friendlyAuthError(error) } : { success: true }
+  }, [])
 
-      // 1. account lockout from repeated failures
-      if (record?.lockUntil && record.lockUntil > Date.now()) {
-        const mins = Math.ceil((record.lockUntil - Date.now()) / 60000)
-        return {
-          success: false,
-          error: `Account locked due to multiple failed attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`,
-        }
-      }
+  const signUp = useCallback(async (fullName: string, email: string, password: string) => {
+    const { data: result, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { full_name: fullName.trim() },
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
+    })
+    if (error) return { success: false, error: friendlyAuthError(error) }
+    // With "Confirm email" enabled there is no session until the link is clicked.
+    return { success: true, needsConfirmation: !result.session }
+  }, [])
 
-      const registerFailure = () => {
-        const prev = attempts[uname]?.count ?? 0
-        const count = prev + 1
-        const next: LoginAttempt = { count }
-        if (count >= MAX_LOGIN_ATTEMPTS) {
-          next.lockUntil = Date.now() + LOGIN_LOCK_MS
-          next.count = 0
-        }
-        attempts[uname] = next
-        saveLoginAttempts(attempts)
-        return count
-      }
+  const signInWithGoogle = useCallback(async (): Promise<AuthResult> => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/dashboard` },
+    })
+    return error ? { success: false, error: friendlyAuthError(error) } : { success: true }
+  }, [])
 
-      // 2. username must exist in the system
-      const byName = data.users.find((u) => u.username.toLowerCase() === uname)
-      if (!byName) {
-        registerFailure()
-        return { success: false, error: "No account found with that username." }
-      }
+  const sendPasswordReset = useCallback(async (email: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    return error ? { success: false, error: friendlyAuthError(error) } : { success: true }
+  }, [])
 
-      // 3. role must match the selected role
-      if (byName.role !== role) {
-        registerFailure()
-        return { success: false, error: "This account is not registered for the selected role." }
-      }
+  const updatePassword = useCallback(async (password: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.updateUser({ password })
+    return error ? { success: false, error: friendlyAuthError(error) } : { success: true }
+  }, [])
 
-      // 4. password must match stored credentials
-      if (!verifyPassword(password, byName.password)) {
-        const count = registerFailure()
-        const left = MAX_LOGIN_ATTEMPTS - count
-        return {
-          success: false,
-          error:
-            left > 0
-              ? `Incorrect password. ${left} attempt${left === 1 ? "" : "s"} remaining before lockout.`
-              : "Account locked due to multiple failed attempts. Try again later.",
-        }
-      }
-
-      // success — clear failed-attempt history
-      delete attempts[uname]
-      saveLoginAttempts(attempts)
-      setCurrentUserId(byName.id)
-      saveSession(byName.id)
-      return { success: true }
-    },
-    [data.users],
-  )
-
-  const logout = useCallback(() => {
-    setCurrentUserId(null)
-    clearSession()
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut()
   }, [])
 
   // ---------- users (admin) ----------
-  const addUser = useCallback(
-    (u: Omit<User, "id" | "password"> & { password: string }) => {
-      const username = u.username.trim().toLowerCase()
-      if (!username) return { success: false, error: "Username is required." }
-      if (!u.password || u.password.length < 4)
-        return { success: false, error: "Password must be at least 4 characters." }
-      const exists = data.users.some((x) => x.username.toLowerCase() === username)
-      if (exists) return { success: false, error: "That username is already taken." }
-      const newUser: User = {
-        id: uid("user"),
-        username,
-        password: hashPassword(u.password),
-        role: u.role,
-        fullName: u.fullName.trim(),
-        memberId: u.memberId,
-        ministryId: u.ministryId,
-      }
-      setData((prev) => ({ ...prev, users: [...prev.users, newUser] }))
-      return { success: true, user: newUser }
-    },
-    [data.users],
-  )
+  const loadProfiles = useCallback(async (): Promise<AuthResult> => {
+    const { users, error } = await fetchProfiles()
+    if (error) return { success: false, error }
+    setProfiles(users)
+    return { success: true }
+  }, [])
 
-  const updateUser = useCallback(
-    (id: string, u: Partial<Omit<User, "password">> & { password?: string }) => {
-      const target = data.users.find((x) => x.id === id)
-      if (!target) return { success: false, error: "User not found." }
-      if (u.username) {
-        const username = u.username.trim().toLowerCase()
-        const clash = data.users.some(
-          (x) => x.id !== id && x.username.toLowerCase() === username,
-        )
-        if (clash) return { success: false, error: "That username is already taken." }
-      }
-      setData((prev) => ({
-        ...prev,
-        users: prev.users.map((x) => {
-          if (x.id !== id) return x
-          const next: User = {
-            ...x,
-            ...u,
-            username: (u.username ?? x.username).trim().toLowerCase(),
-            password: u.password ? hashPassword(u.password) : x.password,
-          }
-          return next
-        }),
-      }))
-      return { success: true }
+  const setUserRole = useCallback(
+    async (userId: string, role: Role): Promise<AuthResult> => {
+      const result = await updateUserRole(userId, role)
+      if (result.success) await loadProfiles()
+      return result
     },
-    [data.users],
-  )
-
-  const deleteUser = useCallback(
-    (id: string) => {
-      const target = data.users.find((x) => x.id === id)
-      if (!target) return { success: false, error: "User not found." }
-      if (target.role === "Administrator") {
-        const admins = data.users.filter((u) => u.role === "Administrator")
-        if (admins.length <= 1)
-          return { success: false, error: "Cannot delete the last Administrator." }
-      }
-      setData((prev) => ({
-        ...prev,
-        users: prev.users.filter((x) => x.id !== id),
-        // unassign ministry leadership if needed
-        ministries: prev.ministries.map((m) =>
-          m.leaderId === id ? { ...m, leaderId: undefined } : m,
-        ),
-      }))
-      return { success: true }
-    },
-    [data.users],
+    [loadProfiles],
   )
 
   // ---------- members ----------
@@ -466,11 +395,15 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
     data,
     currentUser,
     isLoading,
-    login,
+    signIn,
+    signUp,
+    signInWithGoogle,
+    sendPasswordReset,
+    updatePassword,
     logout,
-    addUser,
-    updateUser,
-    deleteUser,
+    profiles,
+    loadProfiles,
+    setUserRole,
     addMember,
     updateMember,
     deleteMember,

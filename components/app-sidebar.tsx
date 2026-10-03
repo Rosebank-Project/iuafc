@@ -114,8 +114,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const items = NAV_ITEMS.filter((i) => i.roles.includes(currentUser.role))
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logout()
     router.replace("/")
   }
 
