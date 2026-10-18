@@ -70,6 +70,7 @@ const emptyForm: FormState = {
 
 export default function MembersPage() {
   const { data, currentUser, addMember, updateMember, deleteMember } = useChurch()
+  const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState("")
   const [sortKey, setSortKey] = useState<SortKey>("fullName")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -156,26 +157,31 @@ export default function MembersPage() {
     return Object.keys(e).length === 0
   }
 
-  const handleSave = (ev: React.FormEvent) => {
+  const handleSave = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
+    if (!validate() || saving) return
     const payload = {
       ...form,
       ministryId: form.ministryId === "none" ? undefined : form.ministryId,
     }
-    if (editing) {
-      updateMember(editing.id, payload)
-      toast.success("Member updated")
-    } else {
-      addMember(payload)
-      toast.success("Member added")
+    setSaving(true)
+    const result = editing ? await updateMember(editing.id, payload) : await addMember(payload)
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
     }
+    toast.success(editing ? "Member updated" : "Member added")
     setDialogOpen(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteMember(confirmDelete.id)
+    const result = await deleteMember(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success(`${confirmDelete.fullName} removed`)
     setConfirmDelete(null)
   }

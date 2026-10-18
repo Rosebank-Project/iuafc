@@ -40,6 +40,7 @@ const empty: FormState = { title: "", message: "", publishDate: today() }
 export default function AnnouncementsPage() {
   const { data, currentUser, addAnnouncement, updateAnnouncement, deleteAnnouncement } =
     useChurch()
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Announcement | null>(null)
   const [form, setForm] = useState<FormState>(empty)
@@ -76,22 +77,29 @@ export default function AnnouncementsPage() {
     return Object.keys(e).length === 0
   }
 
-  const save = (ev: React.FormEvent) => {
+  const save = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
-    if (editing) {
-      updateAnnouncement(editing.id, form)
-      toast.success("Announcement updated")
-    } else {
-      addAnnouncement({ ...form, adminId: currentUser.id })
-      toast.success("Announcement posted")
+    if (!validate() || saving) return
+    setSaving(true)
+    const result = editing
+      ? await updateAnnouncement(editing.id, form)
+      : await addAnnouncement({ ...form, adminId: currentUser.id })
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
     }
+    toast.success(editing ? "Announcement updated" : "Announcement posted")
     setOpen(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteAnnouncement(confirmDelete.id)
+    const result = await deleteAnnouncement(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success("Announcement removed")
     setConfirmDelete(null)
   }
@@ -206,7 +214,7 @@ export default function AnnouncementsPage() {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">{editing ? "Save" : "Post"}</Button>
+              <Button type="submit" disabled={saving}>{editing ? "Save" : "Post"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

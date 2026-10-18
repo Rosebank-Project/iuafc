@@ -44,6 +44,7 @@ export default function AttendancePage() {
 
   const today = new Date().toISOString().slice(0, 10)
   const firstEvent = data.events[0]
+  const [saving, setSaving] = useState(false)
   const [eventId, setEventId] = useState<string>(firstEvent?.id ?? "")
   const [date, setDate] = useState(firstEvent?.date ?? today)
   const [statusMap, setStatusMap] = useState<Record<string, "Present" | "Absent">>({})
@@ -60,7 +61,8 @@ export default function AttendancePage() {
   const handleStatus = (memberId: string, status: "Present" | "Absent") =>
     setStatusMap((prev) => ({ ...prev, [memberId]: status }))
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return
     // event must be an existing event
     if (!eventId || !selectedEvent) {
       toast.error("Select a valid event")
@@ -84,7 +86,13 @@ export default function AttendancePage() {
       attendanceDate: date,
       status: statusMap[m.id],
     }))
-    bulkRecordAttendance(records)
+    setSaving(true)
+    const result = await bulkRecordAttendance(records)
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success(`Attendance recorded for ${records.length} members`)
     setStatusMap({})
   }
@@ -258,7 +266,7 @@ export default function AttendancePage() {
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={submit} disabled={!eventId || captureableMembers.length === 0}>
+                <Button onClick={submit} disabled={saving || !eventId || captureableMembers.length === 0}>
                   <Save className="size-4" /> Save Attendance
                 </Button>
               </div>

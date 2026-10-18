@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, Church } from 'lucide-react';
+import { Menu, Church, CircleAlert } from 'lucide-react';
 import { useChurch } from '@/lib/church-context';
 import { AppSidebar, NAV_ITEMS } from '@/components/app-sidebar';
 import {
@@ -13,13 +13,15 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { currentUser, isLoading } = useChurch();
+  const { currentUser, isLoading, dataError, reloadData } = useChurch();
+  const [retrying, setRetrying] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -117,6 +119,27 @@ export default function DashboardLayout({
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {dataError && (
+            <Alert variant="destructive" className="mb-6">
+              <CircleAlert />
+              <AlertTitle>Could not load the church data</AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                <span>{dataError}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={retrying}
+                  onClick={async () => {
+                    setRetrying(true);
+                    await reloadData();
+                    setRetrying(false);
+                  }}
+                >
+                  Try again
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {children}
         </main>
       </div>

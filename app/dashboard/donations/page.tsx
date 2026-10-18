@@ -65,6 +65,7 @@ const emptyForm: FormState = {
 
 export default function DonationsPage() {
   const { data, currentUser, addDonation, deleteDonation } = useChurch()
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
@@ -113,10 +114,11 @@ export default function DonationsPage() {
     return Object.keys(e).length === 0
   }
 
-  const handleSave = (ev: React.FormEvent) => {
+  const handleSave = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
-    const newDon = addDonation({
+    if (!validate() || saving) return
+    setSaving(true)
+    const result = await addDonation({
       memberId: form.memberId,
       amount: Number(form.amount),
       donationType: form.donationType,
@@ -124,15 +126,25 @@ export default function DonationsPage() {
       donationDate: form.donationDate,
       financeOfficerId: currentUser.id,
     })
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
+    const newDon = result.data
     toast.success("Donation recorded", { description: `Receipt ${newDon.receiptNumber}` })
     setOpen(false)
     setForm(emptyForm)
     setReceiptDonation(newDon) // show receipt dialog
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteDonation(confirmDelete.id)
+    const result = await deleteDonation(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success("Donation removed")
     setConfirmDelete(null)
   }
@@ -484,7 +496,7 @@ export default function DonationsPage() {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Record</Button>
+              <Button type="submit" disabled={saving}>Record</Button>
             </DialogFooter>
           </form>
         </DialogContent>

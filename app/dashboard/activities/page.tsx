@@ -77,6 +77,7 @@ const STATUS_ICON: Record<ActivityStatus, React.ComponentType<{ className?: stri
 
 export default function ActivitiesPage() {
   const { data, currentUser, addActivity, reviewActivity, deleteActivity } = useChurch()
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<ActivityForm>(emptyForm)
   const [errors, setErrors] = useState<Partial<Record<keyof ActivityForm, string>>>({})
@@ -128,10 +129,11 @@ export default function ActivitiesPage() {
     return Object.keys(e).length === 0
   }
 
-  const save = (ev: React.FormEvent) => {
+  const save = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
-    addActivity({
+    if (!validate() || saving) return
+    setSaving(true)
+    const result = await addActivity({
       ministryId: form.ministryId,
       title: form.title.trim(),
       description: form.description.trim(),
@@ -139,13 +141,27 @@ export default function ActivitiesPage() {
       venue: form.venue.trim(),
       submittedById: currentUser.id,
     })
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success("Activity submitted for pastor approval")
     setOpen(false)
   }
 
-  const submitReview = () => {
+  const submitReview = async () => {
     if (!reviewing) return
-    reviewActivity(reviewing.activity.id, reviewing.decision, currentUser.id, reviewNote.trim() || undefined)
+    const result = await reviewActivity(
+      reviewing.activity.id,
+      reviewing.decision,
+      currentUser.id,
+      reviewNote.trim() || undefined,
+    )
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success(
       reviewing.decision === "Approved" ? "Activity approved" : "Activity rejected",
     )
@@ -153,9 +169,13 @@ export default function ActivitiesPage() {
     setReviewNote("")
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteActivity(confirmDelete.id)
+    const result = await deleteActivity(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success("Activity removed")
     setConfirmDelete(null)
   }
@@ -371,7 +391,7 @@ export default function ActivitiesPage() {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">Submit</Button>
+              <Button type="submit" disabled={saving}>Submit</Button>
             </DialogFooter>
           </form>
         </DialogContent>
