@@ -436,8 +436,8 @@ export default function MembersPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this member?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove {confirmDelete?.fullName} along with all related attendance and
-              donation records. This action cannot be undone.
+              This will remove {confirmDelete?.fullName} and their attendance and event registrations.
+              Their donations are kept for the financial records. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
