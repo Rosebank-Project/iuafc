@@ -38,6 +38,7 @@ import { toast } from "sonner"
 
 export default function MinistriesPage() {
   const { data, currentUser, addMinistry, updateMinistry, deleteMinistry } = useChurch()
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Ministry | null>(null)
   const [form, setForm] = useState({ name: "", description: "", leaderId: "none" })
@@ -81,27 +82,32 @@ export default function MinistriesPage() {
     return Object.keys(e).length === 0
   }
 
-  const save = (ev: React.FormEvent) => {
+  const save = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
+    if (!validate() || saving) return
     const payload = {
       name: form.name.trim(),
       description: form.description.trim(),
       leaderId: form.leaderId === "none" ? undefined : form.leaderId,
     }
-    if (editing) {
-      updateMinistry(editing.id, payload)
-      toast.success("Ministry updated")
-    } else {
-      addMinistry(payload)
-      toast.success("Ministry created")
+    setSaving(true)
+    const result = editing ? await updateMinistry(editing.id, payload) : await addMinistry(payload)
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
     }
+    toast.success(editing ? "Ministry updated" : "Ministry created")
     setOpen(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteMinistry(confirmDelete.id)
+    const result = await deleteMinistry(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success(`${confirmDelete.name} deleted`)
     setConfirmDelete(null)
   }
@@ -246,7 +252,7 @@ export default function MinistriesPage() {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">{editing ? "Save Changes" : "Create"}</Button>
+              <Button type="submit" disabled={saving}>{editing ? "Save Changes" : "Create"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

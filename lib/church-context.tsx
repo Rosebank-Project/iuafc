@@ -14,8 +14,26 @@ import type {
   Role,
   User,
 } from "./types"
-import { loadData, saveData, uid } from "./storage"
 import { supabase } from "./supabase"
+import {
+  deleteRegistration,
+  deleteRow,
+  insertActivity,
+  insertAnnouncement,
+  insertDonation,
+  insertEvent,
+  insertMember,
+  insertMinistry,
+  insertRegistration,
+  loadChurchData,
+  reviewActivityRow,
+  updateAnnouncementRow,
+  updateEventRow,
+  updateMemberRow,
+  updateMinistryRow,
+  upsertAttendance,
+  type Result,
+} from "./data"
 import {
   friendlyAuthError,
   loadCurrentUser,
@@ -43,81 +61,74 @@ interface ChurchContextValue {
   loadProfiles: () => Promise<AuthResult>
   setUserRole: (userId: string, role: Role) => Promise<AuthResult>
 
+  // church data (Supabase tables). Every change returns a Result so the page can show errors.
+  dataError: string | null
+  reloadData: () => Promise<void>
+
   // members
-  addMember: (m: Omit<Member, "id">) => Member
-  updateMember: (id: string, m: Partial<Member>) => void
-  deleteMember: (id: string) => void
+  addMember: (m: Omit<Member, "id">) => Promise<Result<Member>>
+  updateMember: (id: string, m: Partial<Member>) => Promise<Result<Member>>
+  deleteMember: (id: string) => Promise<Result>
 
   // ministries
-  addMinistry: (m: Omit<Ministry, "id">) => Ministry
-  updateMinistry: (id: string, m: Partial<Ministry>) => void
-  deleteMinistry: (id: string) => void
+  addMinistry: (m: Omit<Ministry, "id">) => Promise<Result<Ministry>>
+  updateMinistry: (id: string, m: Partial<Ministry>) => Promise<Result<Ministry>>
+  deleteMinistry: (id: string) => Promise<Result>
 
   // events
-  addEvent: (e: Omit<Event, "id" | "registeredMemberIds">) => Event
-  updateEvent: (id: string, e: Partial<Event>) => void
-  deleteEvent: (id: string) => void
-  registerForEvent: (eventId: string, memberId: string) => void
-  unregisterFromEvent: (eventId: string, memberId: string) => void
+  addEvent: (e: Omit<Event, "id" | "registeredMemberIds">) => Promise<Result<Event>>
+  updateEvent: (id: string, e: Partial<Event>) => Promise<Result>
+  deleteEvent: (id: string) => Promise<Result>
+  registerForEvent: (eventId: string, memberId: string) => Promise<Result>
+  unregisterFromEvent: (eventId: string, memberId: string) => Promise<Result>
 
   // attendance
-  recordAttendance: (a: Omit<Attendance, "id">) => Attendance
-  bulkRecordAttendance: (records: Omit<Attendance, "id">[]) => void
+  recordAttendance: (a: Omit<Attendance, "id">) => Promise<Result>
+  bulkRecordAttendance: (records: Omit<Attendance, "id">[]) => Promise<Result>
 
-  // donations
-  addDonation: (d: Omit<Donation, "id" | "receiptNumber">) => Donation
-  deleteDonation: (id: string) => void
+  // donations (the database assigns the receipt number)
+  addDonation: (d: Omit<Donation, "id" | "receiptNumber">) => Promise<Result<Donation>>
+  deleteDonation: (id: string) => Promise<Result>
 
   // announcements
-  addAnnouncement: (a: Omit<Announcement, "id">) => Announcement
-  updateAnnouncement: (id: string, a: Partial<Announcement>) => void
-  deleteAnnouncement: (id: string) => void
+  addAnnouncement: (a: Omit<Announcement, "id">) => Promise<Result<Announcement>>
+  updateAnnouncement: (id: string, a: Partial<Announcement>) => Promise<Result<Announcement>>
+  deleteAnnouncement: (id: string) => Promise<Result>
 
   // ministry activities
   addActivity: (
     a: Omit<MinistryActivity, "id" | "submittedAt" | "status">,
-  ) => MinistryActivity
+  ) => Promise<Result<MinistryActivity>>
   reviewActivity: (
     id: string,
     decision: "Approved" | "Rejected",
     reviewerId: string,
     note?: string,
-  ) => void
-  deleteActivity: (id: string) => void
+  ) => Promise<Result>
+  deleteActivity: (id: string) => Promise<Result>
 }
 
 const ChurchContext = createContext<ChurchContextValue | null>(null)
 
+const EMPTY_DATA: DataState = {
+  users: [],
+  members: [],
+  ministries: [],
+  events: [],
+  attendance: [],
+  donations: [],
+  announcements: [],
+  activities: [],
+}
+
 export function ChurchProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<DataState>(() => ({
-    users: [],
-    members: [],
-    ministries: [],
-    events: [],
-    attendance: [],
-    donations: [],
-    announcements: [],
-    activities: [],
-  }))
+  const [data, setData] = useState<DataState>(EMPTY_DATA)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [profiles, setProfiles] = useState<User[]>([])
-  const [dataLoading, setDataLoading] = useState(true)
+  const [dataLoading, setDataLoading] = useState(false)
+  const [dataError, setDataError] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const isLoading = dataLoading || authLoading
-
-  // hydrate church data from localStorage on mount (until the Supabase tables exist, #1)
-  useEffect(() => {
-    const loaded = loadData()
-    // backwards compat: ensure activities array exists for older saved state
-    if (!loaded.activities) loaded.activities = []
-    setData(loaded)
-    setDataLoading(false)
-  }, [])
-
-  // persist to localStorage whenever data changes
-  useEffect(() => {
-    if (!dataLoading) saveData(data)
-  }, [data, dataLoading])
+  const isLoading = authLoading || dataLoading
 
   // follow the Supabase session (sign in, sign out, Google redirect, token refresh)
   useEffect(() => {
@@ -136,6 +147,41 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
       listener.subscription.unsubscribe()
     }
   }, [])
+
+  // ---------- church data ----------
+  const reloadData = useCallback(async () => {
+    const result = await loadChurchData()
+    if (result.success) {
+      setData(result.data)
+      setDataError(null)
+    } else {
+      setDataError(result.error)
+    }
+  }, [])
+
+  // Load the church data once the user is signed in; clear it when they sign out.
+  const userId = currentUser?.id
+  useEffect(() => {
+    if (!userId) {
+      setData(EMPTY_DATA)
+      return
+    }
+    let active = true
+    setDataLoading(true)
+    loadChurchData().then((result) => {
+      if (!active) return
+      if (result.success) {
+        setData(result.data)
+        setDataError(null)
+      } else {
+        setDataError(result.error)
+      }
+      setDataLoading(false)
+    })
+    return () => {
+      active = false
+    }
+  }, [userId])
 
   // ---------- auth ----------
   const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
@@ -198,198 +244,166 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
     [loadProfiles],
   )
 
+  // Each change is saved in Supabase first; the screen is only updated when it succeeds.
+  // Deletes reload everything, because the database also clears linked rows
+  // (registrations, attendance) or the links to the deleted record.
+  const removeAndReload = useCallback(
+    async (table: Parameters<typeof deleteRow>[0], id: string): Promise<Result> => {
+      const result = await deleteRow(table, id)
+      if (result.success) await reloadData()
+      return result
+    },
+    [reloadData],
+  )
+
   // ---------- members ----------
-  const addMember = useCallback((m: Omit<Member, "id">) => {
-    const newMember: Member = { ...m, id: uid("mem") }
-    setData((prev) => ({ ...prev, members: [...prev.members, newMember] }))
-    return newMember
+  const addMember = useCallback(async (m: Omit<Member, "id">) => {
+    const result = await insertMember(m)
+    if (result.success) setData((prev) => ({ ...prev, members: [...prev.members, result.data] }))
+    return result
   }, [])
 
-  const updateMember = useCallback((id: string, m: Partial<Member>) => {
-    setData((prev) => ({
-      ...prev,
-      members: prev.members.map((x) => (x.id === id ? { ...x, ...m } : x)),
-    }))
+  const updateMember = useCallback(async (id: string, m: Partial<Member>) => {
+    const result = await updateMemberRow(id, m)
+    if (result.success) {
+      setData((prev) => ({ ...prev, members: prev.members.map((x) => (x.id === id ? result.data : x)) }))
+    }
+    return result
   }, [])
 
-  const deleteMember = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      members: prev.members.filter((x) => x.id !== id),
-      attendance: prev.attendance.filter((a) => a.memberId !== id),
-      donations: prev.donations.filter((d) => d.memberId !== id),
-      events: prev.events.map((e) => ({
-        ...e,
-        registeredMemberIds: e.registeredMemberIds.filter((mid) => mid !== id),
-      })),
-    }))
-  }, [])
+  const deleteMember = useCallback((id: string) => removeAndReload("members", id), [removeAndReload])
 
   // ---------- ministries ----------
-  const addMinistry = useCallback((m: Omit<Ministry, "id">) => {
-    const newMin: Ministry = { ...m, id: uid("min") }
-    setData((prev) => ({ ...prev, ministries: [...prev.ministries, newMin] }))
-    return newMin
+  const addMinistry = useCallback(async (m: Omit<Ministry, "id">) => {
+    const result = await insertMinistry(m)
+    if (result.success) setData((prev) => ({ ...prev, ministries: [...prev.ministries, result.data] }))
+    return result
   }, [])
 
-  const updateMinistry = useCallback((id: string, m: Partial<Ministry>) => {
-    setData((prev) => ({
-      ...prev,
-      ministries: prev.ministries.map((x) => (x.id === id ? { ...x, ...m } : x)),
-    }))
+  const updateMinistry = useCallback(async (id: string, m: Partial<Ministry>) => {
+    const result = await updateMinistryRow(id, m)
+    if (result.success) {
+      setData((prev) => ({ ...prev, ministries: prev.ministries.map((x) => (x.id === id ? result.data : x)) }))
+    }
+    return result
   }, [])
 
-  const deleteMinistry = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      ministries: prev.ministries.filter((x) => x.id !== id),
-      members: prev.members.map((m) => (m.ministryId === id ? { ...m, ministryId: undefined } : m)),
-      activities: prev.activities.filter((a) => a.ministryId !== id),
-    }))
-  }, [])
+  const deleteMinistry = useCallback((id: string) => removeAndReload("ministries", id), [removeAndReload])
 
   // ---------- events ----------
-  const addEvent = useCallback((e: Omit<Event, "id" | "registeredMemberIds">) => {
-    const newEvt: Event = { ...e, id: uid("evt"), registeredMemberIds: [] }
-    setData((prev) => ({ ...prev, events: [...prev.events, newEvt] }))
-    return newEvt
+  const addEvent = useCallback(async (e: Omit<Event, "id" | "registeredMemberIds">) => {
+    const result = await insertEvent(e)
+    if (result.success) setData((prev) => ({ ...prev, events: [...prev.events, result.data] }))
+    return result
   }, [])
 
-  const updateEvent = useCallback((id: string, e: Partial<Event>) => {
-    setData((prev) => ({
-      ...prev,
-      events: prev.events.map((x) => (x.id === id ? { ...x, ...e } : x)),
-    }))
+  const updateEvent = useCallback(async (id: string, e: Partial<Event>) => {
+    const result = await updateEventRow(id, e)
+    if (result.success) {
+      setData((prev) => ({ ...prev, events: prev.events.map((x) => (x.id === id ? { ...x, ...e } : x)) }))
+    }
+    return result
   }, [])
 
-  const deleteEvent = useCallback((id: string) => {
-    setData((prev) => ({
-      ...prev,
-      events: prev.events.filter((x) => x.id !== id),
-      attendance: prev.attendance.filter((a) => a.eventId !== id),
-    }))
+  const deleteEvent = useCallback((id: string) => removeAndReload("events", id), [removeAndReload])
+
+  const registerForEvent = useCallback(async (eventId: string, memberId: string) => {
+    const result = await insertRegistration(eventId, memberId)
+    if (result.success) {
+      setData((prev) => ({
+        ...prev,
+        events: prev.events.map((e) =>
+          e.id === eventId && !e.registeredMemberIds.includes(memberId)
+            ? { ...e, registeredMemberIds: [...e.registeredMemberIds, memberId] }
+            : e,
+        ),
+      }))
+    }
+    return result
   }, [])
 
-  const registerForEvent = useCallback((eventId: string, memberId: string) => {
-    setData((prev) => ({
-      ...prev,
-      events: prev.events.map((e) =>
-        e.id === eventId && !e.registeredMemberIds.includes(memberId)
-          ? { ...e, registeredMemberIds: [...e.registeredMemberIds, memberId] }
-          : e,
-      ),
-    }))
-  }, [])
-
-  const unregisterFromEvent = useCallback((eventId: string, memberId: string) => {
-    setData((prev) => ({
-      ...prev,
-      events: prev.events.map((e) =>
-        e.id === eventId
-          ? { ...e, registeredMemberIds: e.registeredMemberIds.filter((id) => id !== memberId) }
-          : e,
-      ),
-    }))
+  const unregisterFromEvent = useCallback(async (eventId: string, memberId: string) => {
+    const result = await deleteRegistration(eventId, memberId)
+    if (result.success) {
+      setData((prev) => ({
+        ...prev,
+        events: prev.events.map((e) =>
+          e.id === eventId ? { ...e, registeredMemberIds: e.registeredMemberIds.filter((id) => id !== memberId) } : e,
+        ),
+      }))
+    }
+    return result
   }, [])
 
   // ---------- attendance ----------
-  const recordAttendance = useCallback((a: Omit<Attendance, "id">) => {
-    const newAtt: Attendance = { ...a, id: uid("att") }
-    setData((prev) => {
-      const filtered = prev.attendance.filter(
-        (x) =>
-          !(x.memberId === a.memberId && x.eventId === a.eventId && x.attendanceDate === a.attendanceDate),
-      )
-      return { ...prev, attendance: [...filtered, newAtt] }
-    })
-    return newAtt
-  }, [])
+  const bulkRecordAttendance = useCallback(
+    async (records: Omit<Attendance, "id">[]): Promise<Result> => {
+      if (!currentUser) return { success: false, error: "Please sign in again." }
+      const result = await upsertAttendance(records, currentUser.id)
+      if (!result.success) return result
+      setData((prev) => {
+        // One record per member per event: replace the old ones
+        const saved = new Set(result.data.map((a) => `${a.eventId}|${a.memberId}`))
+        const kept = prev.attendance.filter((a) => !saved.has(`${a.eventId}|${a.memberId}`))
+        return { ...prev, attendance: [...kept, ...result.data] }
+      })
+      return { success: true, data: undefined }
+    },
+    [currentUser],
+  )
 
-  const bulkRecordAttendance = useCallback((records: Omit<Attendance, "id">[]) => {
-    setData((prev) => {
-      let next = prev.attendance
-      for (const a of records) {
-        next = next.filter(
-          (x) =>
-            !(x.memberId === a.memberId && x.eventId === a.eventId && x.attendanceDate === a.attendanceDate),
-        )
-        next = [...next, { ...a, id: uid("att") }]
-      }
-      return { ...prev, attendance: next }
-    })
-  }, [])
+  const recordAttendance = useCallback(
+    (a: Omit<Attendance, "id">) => bulkRecordAttendance([a]),
+    [bulkRecordAttendance],
+  )
 
   // ---------- donations ----------
-  const addDonation = useCallback((d: Omit<Donation, "id" | "receiptNumber">) => {
-    const newDon: Donation = {
-      ...d,
-      id: uid("don"),
-      receiptNumber: `RCP-${Date.now().toString().slice(-6)}`,
-    }
-    setData((prev) => ({ ...prev, donations: [...prev.donations, newDon] }))
-    return newDon
+  const addDonation = useCallback(async (d: Omit<Donation, "id" | "receiptNumber">) => {
+    const result = await insertDonation(d)
+    if (result.success) setData((prev) => ({ ...prev, donations: [result.data, ...prev.donations] }))
+    return result
   }, [])
 
-  const deleteDonation = useCallback((id: string) => {
-    setData((prev) => ({ ...prev, donations: prev.donations.filter((x) => x.id !== id) }))
-  }, [])
+  const deleteDonation = useCallback((id: string) => removeAndReload("donations", id), [removeAndReload])
 
   // ---------- announcements ----------
-  const addAnnouncement = useCallback((a: Omit<Announcement, "id">) => {
-    const newAnn: Announcement = { ...a, id: uid("ann") }
-    setData((prev) => ({ ...prev, announcements: [...prev.announcements, newAnn] }))
-    return newAnn
+  const addAnnouncement = useCallback(async (a: Omit<Announcement, "id">) => {
+    const result = await insertAnnouncement(a)
+    if (result.success) setData((prev) => ({ ...prev, announcements: [result.data, ...prev.announcements] }))
+    return result
   }, [])
 
-  const updateAnnouncement = useCallback((id: string, a: Partial<Announcement>) => {
-    setData((prev) => ({
-      ...prev,
-      announcements: prev.announcements.map((x) => (x.id === id ? { ...x, ...a } : x)),
-    }))
-  }, [])
-
-  const deleteAnnouncement = useCallback((id: string) => {
-    setData((prev) => ({ ...prev, announcements: prev.announcements.filter((x) => x.id !== id) }))
-  }, [])
-
-  // ---------- ministry activities ----------
-  const addActivity = useCallback(
-    (a: Omit<MinistryActivity, "id" | "submittedAt" | "status">) => {
-      const newAct: MinistryActivity = {
-        ...a,
-        id: uid("act"),
-        submittedAt: new Date().toISOString(),
-        status: "Pending",
-      }
-      setData((prev) => ({ ...prev, activities: [...prev.activities, newAct] }))
-      return newAct
-    },
-    [],
-  )
-
-  const reviewActivity = useCallback(
-    (id: string, decision: "Approved" | "Rejected", reviewerId: string, note?: string) => {
+  const updateAnnouncement = useCallback(async (id: string, a: Partial<Announcement>) => {
+    const result = await updateAnnouncementRow(id, a)
+    if (result.success) {
       setData((prev) => ({
         ...prev,
-        activities: prev.activities.map((a) =>
-          a.id === id
-            ? {
-                ...a,
-                status: decision,
-                reviewedById: reviewerId,
-                reviewedAt: new Date().toISOString(),
-                reviewNote: note,
-              }
-            : a,
-        ),
+        announcements: prev.announcements.map((x) => (x.id === id ? result.data : x)),
       }))
+    }
+    return result
+  }, [])
+
+  const deleteAnnouncement = useCallback((id: string) => removeAndReload("announcements", id), [removeAndReload])
+
+  // ---------- ministry activities ----------
+  const addActivity = useCallback(async (a: Omit<MinistryActivity, "id" | "submittedAt" | "status">) => {
+    const result = await insertActivity(a)
+    if (result.success) setData((prev) => ({ ...prev, activities: [...prev.activities, result.data] }))
+    return result
+  }, [])
+
+  const reviewActivity = useCallback(
+    async (id: string, decision: "Approved" | "Rejected", reviewerId: string, note?: string): Promise<Result> => {
+      const result = await reviewActivityRow(id, decision, reviewerId, note)
+      if (!result.success) return result
+      setData((prev) => ({ ...prev, activities: prev.activities.map((x) => (x.id === id ? result.data : x)) }))
+      return { success: true, data: undefined }
     },
     [],
   )
 
-  const deleteActivity = useCallback((id: string) => {
-    setData((prev) => ({ ...prev, activities: prev.activities.filter((a) => a.id !== id) }))
-  }, [])
+  const deleteActivity = useCallback((id: string) => removeAndReload("ministry_activities", id), [removeAndReload])
 
   const value: ChurchContextValue = {
     data,
@@ -404,6 +418,8 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
     profiles,
     loadProfiles,
     setUserRole,
+    dataError,
+    reloadData,
     addMember,
     updateMember,
     deleteMember,

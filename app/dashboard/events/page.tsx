@@ -65,6 +65,7 @@ export default function EventsPage() {
     registerForEvent,
     unregisterFromEvent,
   } = useChurch()
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Event | null>(null)
   const [form, setForm] = useState<EventForm>(emptyForm)
@@ -132,38 +133,47 @@ export default function EventsPage() {
     return Object.keys(e).length === 0
   }
 
-  const save = (ev: React.FormEvent) => {
+  const save = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    if (!validate()) return
-    if (editing) {
-      updateEvent(editing.id, form)
-      toast.success("Event updated")
-    } else {
-      addEvent({ ...form, adminId: currentUser.id })
-      toast.success("Event scheduled")
+    if (!validate() || saving) return
+    setSaving(true)
+    const result = editing
+      ? await updateEvent(editing.id, form)
+      : await addEvent({ ...form, adminId: currentUser.id })
+    setSaving(false)
+    if (!result.success) {
+      toast.error(result.error)
+      return
     }
+    toast.success(editing ? "Event updated" : "Event scheduled")
     setOpen(false)
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirmDelete) return
-    deleteEvent(confirmDelete.id)
+    const result = await deleteEvent(confirmDelete.id)
+    if (!result.success) {
+      toast.error(result.error)
+      return
+    }
     toast.success("Event deleted")
     setConfirmDelete(null)
   }
 
-  const handleRegister = (event: Event) => {
+  const handleRegister = async (event: Event) => {
     if (!memberId) {
       toast.error("Only registered church members can register for events.")
       return
     }
-    if (event.registeredMemberIds.includes(memberId)) {
-      unregisterFromEvent(event.id, memberId)
-      toast.success(`Unregistered from ${event.name}`)
-    } else {
-      registerForEvent(event.id, memberId)
-      toast.success(`Registered for ${event.name}`)
+    const registered = event.registeredMemberIds.includes(memberId)
+    const result = registered
+      ? await unregisterFromEvent(event.id, memberId)
+      : await registerForEvent(event.id, memberId)
+    if (!result.success) {
+      toast.error(result.error)
+      return
     }
+    toast.success(registered ? `Unregistered from ${event.name}` : `Registered for ${event.name}`)
   }
 
   const renderEvent = (e: Event) => {
@@ -349,7 +359,7 @@ export default function EventsPage() {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">{editing ? "Save" : "Schedule"}</Button>
+              <Button type="submit" disabled={saving}>{editing ? "Save" : "Schedule"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
