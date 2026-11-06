@@ -35,6 +35,7 @@ import {
   type Result,
 } from "./data"
 import {
+  deleteMyAccount,
   friendlyAuthError,
   loadCurrentUser,
   loadProfiles as fetchProfiles,
@@ -55,6 +56,8 @@ interface ChurchContextValue {
   sendPasswordReset: (email: string) => Promise<AuthResult>
   updatePassword: (password: string) => Promise<AuthResult>
   logout: () => Promise<void>
+  /** Permanently deletes the signed-in account and signs out (Google Play requirement). */
+  deleteAccount: () => Promise<AuthResult>
 
   // users (admin) – the Supabase `profiles` table
   profiles: User[]
@@ -226,6 +229,8 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await supabase.auth.signOut()
   }, [])
+
+  const deleteAccount = useCallback(() => deleteMyAccount(), [])
 
   // ---------- users (admin) ----------
   const loadProfiles = useCallback(async (): Promise<AuthResult> => {
@@ -415,6 +420,7 @@ export function ChurchProvider({ children }: { children: React.ReactNode }) {
     sendPasswordReset,
     updatePassword,
     logout,
+    deleteAccount,
     profiles,
     loadProfiles,
     setUserRole,
