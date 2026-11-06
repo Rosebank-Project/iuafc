@@ -50,6 +50,21 @@ export async function setUserRole(userId: string, role: Role): Promise<AuthResul
   return error ? { success: false, error: error.message } : { success: true }
 }
 
+/**
+ * Deletes the signed-in user's account through the `delete_my_account` database function
+ * (same function the app uses). The database refuses to delete the only Administrator.
+ */
+export async function deleteMyAccount(): Promise<AuthResult> {
+  const { error } = await supabase.rpc("delete_my_account")
+  if (error) {
+    // The database function raises messages written for the user.
+    return { success: false, error: error.message || "Could not delete your account. Please try again." }
+  }
+  // The account no longer exists, so only the session in this browser is removed.
+  await supabase.auth.signOut({ scope: "local" })
+  return { success: true }
+}
+
 /** Turns Supabase Auth errors into messages the user understands. */
 export function friendlyAuthError(error: AuthError | null): string {
   if (!error) return "Something went wrong. Please try again."

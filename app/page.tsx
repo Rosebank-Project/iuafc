@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Church, Loader2, Lock, Mail, MailCheck, User as UserIcon } from 'lucide-react';
 import { useChurch } from '@/lib/church-context';
@@ -15,6 +16,15 @@ type Mode = 'signin' | 'register' | 'forgot';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Where to go after signing in: the page in `?next=` (e.g. /delete-account) when it is a page
+ * of this site, otherwise the dashboard.
+ */
+function nextPage(): string {
+  const next = new URLSearchParams(window.location.search).get('next');
+  return next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard';
+}
 
 const TITLES: Record<Mode, { title: string; subtitle: string }> = {
   signin: {
@@ -45,7 +55,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && currentUser) router.replace('/dashboard');
+    if (!isLoading && currentUser) router.replace(nextPage());
   }, [currentUser, isLoading, router]);
 
   const switchMode = (next: Mode) => {
@@ -84,7 +94,7 @@ export default function LoginPage() {
       const result = await signIn(email, password);
       if (result.success) {
         toast.success('Welcome back!');
-        router.replace('/dashboard');
+        router.replace(nextPage());
         return;
       }
       setError(result.error ?? 'Login failed.');
@@ -94,7 +104,7 @@ export default function LoginPage() {
       else if (result.needsConfirmation) setSentTo(email.trim());
       else {
         toast.success('Account created');
-        router.replace('/dashboard');
+        router.replace(nextPage());
         return;
       }
     } else {
@@ -323,6 +333,11 @@ export default function LoginPage() {
               )}
             </CardContent>
           </Card>
+          <p className="text-center text-xs text-muted-foreground">
+            <Link href="/privacy" className="hover:underline">Privacy policy</Link>
+            {' · '}
+            <Link href="/delete-account" className="hover:underline">Delete account</Link>
+          </p>
         </div>
       </section>
     </main>

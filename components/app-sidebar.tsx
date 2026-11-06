@@ -178,6 +178,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           <LogOut className="size-4" />
           Log out
         </Button>
+        <Link
+          href="/delete-account"
+          onClick={onNavigate}
+          className="block text-center text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground hover:underline"
+        >
+          Delete account
+        </Link>
       </div>
     </aside>
   )
